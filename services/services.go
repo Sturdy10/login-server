@@ -3,15 +3,14 @@ package services
 import (
 	"auth-login/auth"
 	"auth-login/models"
+	"auth-login/pkg/utils"
 	"auth-login/repositories"
-	"fmt"
-	"regexp"
 
 	"github.com/gin-gonic/gin"
 )
 
 type IServices interface {
-	Login(c *gin.Context, login models.Login) (models.LoginResponse, error)
+	Login(req models.Login, ip, os string, c *gin.Context) (models.LoginResponse, error) 
 }
 
 type service struct {
@@ -21,47 +20,33 @@ type service struct {
 func NewService(r repositories.IRepository) IServices {
 	return &service{r: r}
 }
-func validateEmail(email string) error {
-	emailRegex := regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
-	if !emailRegex.MatchString(email) {
-		return fmt.Errorf("invalid email format")
-	}
-	return nil
-}
 
-// Implementing the IServices interface
-func (s *service) Login(c *gin.Context, login models.Login) (models.LoginResponse, error) {
-	if err := validateEmail(login.OrgpplEmail); err != nil {
+func (s *service) Login(req models.Login, ip, os string, c *gin.Context) (models.LoginResponse, error) {
+	if err := utils.ValidateEmail(req.OrgpplEmail); err != nil {
 		return models.LoginResponse{}, err
 	}
 
-	loginResponse, err := s.r.Login(login)
+	response, err := s.r.Login(req)
 	if err != nil {
 		return models.LoginResponse{}, err
 	}
 
-	// Get the user's IP address and operating system
-	ip := auth.GetClientIP(c.Request)
-	os := auth.GetOS()
+	accessClaims := auth.NewAccessClaims(response.OrgpplID, ip, os)
+	refreshClaims := auth.NewRefreshClaims(response.OrgpplID)
 
-	// Create claims for access and refresh tokens
-	accessClaims := auth.CreateAccessClaims(loginResponse.OrgpplID, ip, os)
-	refreshClaims := auth.CreateRefreshClaims(loginResponse.OrgpplID)
-
-	// Generate access and refresh tokens
-	accessToken, err := auth.CreateAccessToken(accessClaims)
+	accessToken, err := auth.GenerateToken(accessClaims, auth.AccessKey) // ส่ง key สำหรับ access token
 	if err != nil {
 		return models.LoginResponse{}, err
 	}
 
-	refreshToken, err := auth.CreateRefreshToken(refreshClaims)
+	refreshToken, err := auth.GenerateToken(refreshClaims, auth.RefreshKey) // ส่ง key สำหรับ refresh token
 	if err != nil {
 		return models.LoginResponse{}, err
 	}
 
-	// Set cookies for the tokens
-	auth.SetAccessTokenCookie(c, accessToken)
-	auth.SetRefreshTokenCookie(c, refreshToken)
+	// ใช้ c *gin.Context ในการตั้งค่า cookie
+	auth.SetCookie(c, "access_token", accessToken, auth.AccessTokenExp)
+	auth.SetCookie(c, "refresh_token", refreshToken, auth.RefreshTokenExp)
 
-	return models.LoginResponse{OrgpplID: loginResponse.OrgpplID}, nil
+	return response, nil
 }

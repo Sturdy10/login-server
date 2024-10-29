@@ -3,6 +3,7 @@ package main
 import (
 	"auth-login/handlers"
 	"auth-login/middlewares"
+
 	"auth-login/pkg/database"
 	"auth-login/repositories"
 	"auth-login/services"
@@ -48,3 +49,4 @@ func main() {
 		panic("Failed to run server: " + err.Error())
 	}
 }
+
